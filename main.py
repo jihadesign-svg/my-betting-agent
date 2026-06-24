@@ -1,79 +1,213 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
-import datetime
-import os
-from plyer import notification
+import plotly.express as px
 
-# --- Page Configuration ---
-st.set_page_config(page_title="Gemini Pro Betting Agent", layout="wide")
-st.title("🎯 Gemini: The Real Betting Agent (Sports Trading Mode)")
+# ---------------------------------------------------------
+# PAGE CONFIGURATION & UI THEMING
+# ---------------------------------------------------------
+st.set_page_config(
+    page_title="Pro Betting Analytics Engine",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- Sidebar Configuration ---
-st.sidebar.title("🛠️ Agent Settings")
-base_path = st.sidebar.text_input("Path for learning data storage:", os.getcwd())
-log_file = os.path.join(base_path, "performance_log.txt")
+# Custom CSS for a clean, premium dashboard feel
+st.markdown("""
+    <style>
+    .main .block-container { padding-top: 2rem; }
+    .stMetric { background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #e9ecef; }
+    div[data-testid="stExpander"] { border: 1px solid #e9ecef; border-radius: 8px; }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- Core Analysis Engine ---
-def gemini_engine(a1, b1, a2, b2):
-# Momentum Analysis (Weighted Pace)
-# Applying weights: 40% for Q1, 60% for Q2
-pace_a = (a1 * 0.4) + (a2 * 0.6)
-pace_b = (b1 * 0.4) + (b2 * 0.6)
-projection = (pace_a + pace_b) * 2
+# ---------------------------------------------------------
+# CORE ANALYTICAL FUNCTIONS
+# ---------------------------------------------------------
 
-# Monte Carlo Simulation (50,000 iterations)
-simulations = np.random.normal(projection, 5, 50000)
-prob_even = (np.sum(np.round(simulations) % 2 == 0) / 50000) * 100
-return prob_even, pace_a, pace_b
+def calculate_momentum_factor(recent_scores, weights=None):
+    """
+    Calculates an exponentially or linearly weighted momentum factor based on recent performance.
+    Returns a multiplier/modifier to adjust the baseline mean.
+    """
+    if not recent_scores:
+        return 0.0
+    
+    n = len(recent_scores)
+    if weights is None:
+        # Linear decay weights favoring the most recent matches
+        weights = np.arange(1, n + 1) / sum(np.arange(1, n + 1))
+        
+    weighted_avg = np.dot(recent_scores, weights)
+    baseline = np.mean(recent_scores)
+    
+    # Normalize momentum shift between -15% and +15% adjustment
+    momentum_shift = (weighted_avg - baseline) / (baseline if baseline != 0 else 1)
+    return np.clip(momentum_shift, -0.15, 0.15)
 
-# --- Main User Interface ---
-col1, col2 = st.columns(2)
-with col1:
-st.subheader("Team A Performance")
-a1 = st.number_input("Team A - Quarter 1", 0)
-a2 = st.number_input("Team A - Quarter 2", 0)
-with col2:
-st.subheader("Team B Performance")
-b1 = st.number_input("Team B - Quarter 1", 0)
-b2 = st.number_input("Team B - Quarter 2", 0)
+def run_monte_carlo(team_a_base, team_a_std, team_b_base, team_b_std, momentum_a, momentum_b, iterations=10000):
+    """
+    Executes high-speed Monte Carlo simulation adjusting baseline performance with momentum factors.
+    """
+    # Apply momentum multipliers to the base expected ratings/scores
+    adj_mean_a = team_a_base * (1 + momentum_a)
+    adj_mean_b = team_b_base * (1 + momentum_b)
+    
+    # Generate normal distributions for simulated outcomes
+    sim_a = np.random.normal(adj_mean_a, team_a_std, iterations)
+    sim_b = np.random.normal(adj_mean_b, team_b_std, iterations)
+    
+    # Ensure no negative scores or points possible in sports modeling
+    sim_a = np.clip(sim_a, 0, None)
+    sim_b = np.clip(sim_b, 0, None)
+    
+    # Matrix operations for lightning-fast metrics calculation
+    diff = sim_a - sim_b
+    
+    wins_a = np.sum(diff > 0)
+    wins_b = np.sum(diff < 0)
+    draws = np.sum(diff == 0) # Relevant for football models
+    
+    prob_a = wins_a / iterations
+    prob_b = wins_b / iterations
+    prob_draw = draws / iterations
+    
+    return sim_a, sim_b, diff, prob_a, prob_b, prob_draw
 
-if st.button("Generate Gemini Verdict"):
-prob, pa, pb = gemini_engine(a1, b1, a2, b2)
-decision = "Even" if prob > 50 else "Odd"
+# ---------------------------------------------------------
+# SIDEBAR CONTROL PANEL
+# ---------------------------------------------------------
+st.sidebar.header("🕹️ Simulation Control Panel")
 
-# 1. Visualization (Trading Candlestick)
-fig = go.Figure(data=[go.Candlestick(
-x=['Game Trend'],
-open=[a1 - b1],
-high=[max(a1 - b1, a2 - b2)],
-low=[min(a1 - b1, a2 - b2)],
-close=[a2 - b2]
-)])
-fig.update_layout(title="Momentum Power Analysis (Trading Candle)")
-st.plotly_chart(fig)
+with st.sidebar.expander("Team Profiles", expanded=True):
+    team_a_name = st.text_input("Home Team Name", "Team Alpha")
+    team_b_name = st.text_input("Away Team Name", "Team Beta")
 
-# 2. Decision and Financial Management
-st.metric("Agent Confidence Level", f"{prob:.2f}%")
-# Kelly Criterion Calculation
-stake = (max(prob, 100 - prob) * 0.9 - (100 - max(prob, 100 - prob))) / 0.9
-st.info(f"Verdict: {decision} | Suggested Stake (Kelly Criterion): {max(0, stake/10):.2f}%")
+with st.sidebar.expander("Model Hyperparameters", expanded=True):
+    sim_iterations = st.slider("Monte Carlo Iterations", min_value=1000, max_value=50000, value=10000, step=1000)
+    
+    st.markdown("### **Baseline Ratings / Expected Scores**")
+    t_a_base = st.number_input(f"{team_a_name} Base Expected", value=2.50, step=0.1)
+    t_a_std = st.number_input(f"{team_a_name} Volatility (Std Dev)", value=1.10, step=0.05)
+    
+    st.markdown("---")
+    t_b_base = st.number_input(f"{team_b_name} Base Expected", value=1.80, step=0.1)
+    t_b_std = st.number_input(f"{team_b_name} Volatility (Std Dev)", value=0.95, step=0.05)
 
-if prob > 60 or prob < 40:
-notification.notify(title="Betting Opportunity!", message=f"Agent recommends: {decision}")
-st.success("Verdict: High conviction opportunity detected.")
+# ---------------------------------------------------------
+# MAIN DASHBOARD INTERFACE
+# ---------------------------------------------------------
+st.title("📊 Advanced Sports Betting Analytics Dashboard")
+st.markdown("Quant-based prediction engine leveraging momentum tracking and statistical distributions.")
 
-st.session_state.last_decision = decision
-st.session_state.last_prob = prob
+# Tabs for structured workflow
+tab1, tab2, tab3 = st.tabs(["🔥 Momentum Analysis", "🎲 Monte Carlo Engine", "💰 Value & Bankroll Allocation"])
 
-# --- Self-Learning System (Evaluation) ---
-st.sidebar.subheader("Evaluate Last Decision:")
-if st.sidebar.button("✅ Success"):
-with open(log_file, "a") as f:
-f.write(f"{datetime.datetime.now()} | {st.session_state.last_decision} | Success\n")
-st.sidebar.success("Success recorded in learning log.")
+# --- TAB 1: MOMENTUM ANALYSIS ---
+with tab1:
+    st.subheader("Form & Momentum Analytics")
+    st.markdown("Input recent sequence scores (most recent match *last*) to adjust baseline probability profiles.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"##### {team_a_name} Recent Form Trend")
+        raw_inputs_a = st.text_input(f"{team_a_name} Last 5 Matches (Comma separated)", "2,3,1,4,3")
+        scores_a = [float(x.strip()) for x in raw_inputs_a.split(",") if x.strip().isdigit() or '.' in x]
+        mom_factor_a = calculate_momentum_factor(scores_a)
+        
+        # UI Visual Feedback
+        arrow_a = "📈" if mom_factor_a >= 0 else "📉"
+        st.metric(label=f"{team_a_name} Calculated Momentum Modifier", value=f"{mom_factor_a:+.2%}", delta=f"{arrow_a} Effect")
+        
+    with col2:
+        st.markdown(f"##### {team_b_name} Recent Form Trend")
+        raw_inputs_b = st.text_input(f"{team_b_name} Last 5 Matches (Comma separated)", "1,1,2,0,2")
+        scores_b = [float(x.strip()) for x in raw_inputs_b.split(",") if x.strip().isdigit() or '.' in x]
+        mom_factor_b = calculate_momentum_factor(scores_b)
+        
+        arrow_b = "📈" if mom_factor_b >= 0 else "📉"
+        st.metric(label=f"{team_b_name} Calculated Momentum Modifier", value=f"{mom_factor_b:+.2%}", delta=f"{arrow_b} Effect")
 
-if st.sidebar.button("❌ Failure"):
-with open(log_file, "a") as f:
-f.write(f"{datetime.datetime.now()} | {st.session_state.last_decision} | Failure\n")
-st.sidebar.error("Failure recorded. Re-calibrating algorithms.")
+    # Form Trend Visualizer
+    st.markdown("### Form Velocity Trendlines")
+    trend_df = pd.DataFrame({
+        'Match Index': np.arange(1, max(len(scores_a), len(scores_b)) + 1),
+        f'{team_a_name} Performance': pd.Series(scores_a),
+        f'{team_b_name} Performance': pd.Series(scores_b)
+    })
+    fig_trend = px.line(trend_df, x='Match Index', y=[f'{team_a_name} Performance', f'{team_b_name} Performance'],
+                        markers=True, line_shape='spline', title="Recent Match Score Progression")
+    fig_trend.update_layout(yaxis_title="Output Metric / Goals / Points", template="plotly_white")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+# --- TAB 2: MONTE CARLO SIMULATION ---
+with tab2:
+    st.subheader("Stochastic Match Simulation Engine")
+    
+    # Execute backend simulations
+    sim_a, sim_b, diff, p_a, p_b, p_draw = run_monte_carlo(
+        t_a_base, t_a_std, t_b_base, t_b_std, mom_factor_a, mom_factor_b, sim_iterations
+    )
+    
+    # Summary Metrics Cards
+    m1, m2, m3 = st.columns(3)
+    m1.metric(label=f"Projected {team_a_name} Implied Win Probability", value=f"{p_a:.2%}")
+    m2.metric(label=f"Projected {team_b_name} Implied Win Probability", value=f"{p_b:.2%}")
+    m3.metric(label="Projected Draw Probability", value=f"{p_draw:.2%}")
+    
+    st.markdown("---")
+    
+    # Distribution Visualizations
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        st.markdown("##### Simulated Score Distributions")
+        fig_dist = go.Figure()
+        fig_dist.add_trace(go.Histogram(x=sim_a, name=team_a_name, opacity=0.6, marker_color='#1f77b4', nbinsx=30))
+        fig_dist.add_trace(go.Histogram(x=sim_b, name=team_b_name, opacity=0.6, marker_color='#ff7f0e', nbinsx=30))
+        fig_dist.update_layout(barmode='overlay', template="plotly_white", margin=dict(l=20, r=20, t=30, b=20))
+        st.plotly_chart(fig_dist, use_container_width=True)
+        
+    with col_chart2:
+        st.markdown("##### Margin of Victory / Goal Spread Distribution")
+        fig_diff = px.histogram(pd.DataFrame({'Spread': diff}), x='Spread', color_discrete_sequence=['#2ca02c'], nbinsx=40)
+        fig_diff.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="Draw Threshold")
+        fig_diff.update_layout(template="plotly_white", margin=dict(l=20, r=20, t=30, b=20))
+        st.plotly_chart(fig_diff, use_container_width=True)
+
+# --- TAB 3: VALUE BETTING & BANKROLL ALLOCATION ---
+with tab3:
+    st.subheader("Value Assessment & Kelly Criterion Management")
+    
+    col_bet1, col_bet2 = st.columns(2)
+    
+    with col_bet1:
+        st.markdown("##### Bookmaker Line Input")
+        market_odds_a = st.number_input(f"Market Odds for {team_a_name} Win (Decimal)", value=2.10, min_value=1.01, step=0.05)
+        bankroll = st.number_input("Total Working Capital / Bankroll ($)", value=10000, step=500)
+        kelly_fraction = st.slider("Kelly Criterion Multiplier (Fractional Kelly)", min_value=0.1, max_value=1.0, value=0.5, step=0.05)
+        
+    with col_bet2:
+        st.markdown("##### Expected Value & Risk Output")
+        
+        # Analytical Edge Calculation
+        implied_market_prob = 1 / market_odds_a
+        edge = p_a - implied_market_prob
+        
+        # Kelly Formula Calculation: f* = (bp - q) / b = (edge * odds + prob_loss) / odds... simplified:
+        if edge > 0:
+            b = market_odds_a - 1
+            p = p_a
+            q = 1 - p
+            raw_kelly = (b * p - q) / b
+            suggested_stake_pct = raw_kelly * kelly_fraction
+            suggested_cash = bankroll * suggested_stake_pct
+            
+            st.success(f"➕ **Positive Edge Detected! Value Found.**\n\nYour edge over the market is **{edge:+.2%}**.")
+            st.metric("Suggested Stake %", f"{suggested_stake_pct:.2%}")
+            st.metric("Suggested Bet Size", f"${suggested_cash:,.2f}")
+        else:
+            st.error(f"❌ **No Market Edge.**\n\nYour model's implied probability ({p_a:.2%}) is lower than or equal to the bookmaker's price ({implied_market_prob:.2%}). **Pass on this market.**")
