@@ -47,13 +47,52 @@ def calculate_momentum_factor(recent_scores, weights=None):
     momentum_shift = (weighted_avg - baseline) / (baseline if baseline != 0 else 1)
     return np.clip(momentum_shift, -0.15, 0.15)
 
+<<<<<<< feature/draw-tolerance-seed
+def run_monte_carlo(team_a_base, team_a_std, team_b_base, team_b_std, momentum_a, momentum_b, iterations=10000, draw_tolerance=0.25, seed=None):
+    """
+    Executes high-speed Monte Carlo simulation adjusting baseline performance with momentum factors.
+
+    Parameters:
+    - draw_tolerance: float, if > 0 counts outcomes with |diff| <= draw_tolerance as draws
+    - seed: optional int for reproducibility
+=======
 def run_monte_carlo(team_a_base, team_a_std, team_b_base, team_b_std, momentum_a, momentum_b, iterations=10000):
     """
     Executes high-speed Monte Carlo simulation adjusting baseline performance with momentum factors.
+>>>>>>> main
     """
     # Apply momentum multipliers to the base expected ratings/scores
     adj_mean_a = team_a_base * (1 + momentum_a)
     adj_mean_b = team_b_base * (1 + momentum_b)
+<<<<<<< feature/draw-tolerance-seed
+
+    # Use a Generator for reproducible, modern RNG
+    rng = np.random.default_rng(seed)
+
+    # Generate normal distributions for simulated outcomes
+    sim_a = rng.normal(adj_mean_a, team_a_std, iterations)
+    sim_b = rng.normal(adj_mean_b, team_b_std, iterations)
+
+    # Ensure no negative scores or points possible in sports modeling
+    sim_a = np.clip(sim_a, 0, None)
+    sim_b = np.clip(sim_b, 0, None)
+
+    # Matrix operations for lightning-fast metrics calculation
+    diff = sim_a - sim_b
+
+    wins_a = np.sum(diff > 0)
+    wins_b = np.sum(diff < 0)
+    # Count draws using tolerance rather than exact float equality
+    if draw_tolerance and draw_tolerance > 0:
+        draws = np.sum(np.abs(diff) <= draw_tolerance)
+    else:
+        draws = np.sum(np.isclose(diff, 0, atol=1e-9))
+
+    prob_a = wins_a / iterations
+    prob_b = wins_b / iterations
+    prob_draw = draws / iterations
+
+=======
     
     # Generate normal distributions for simulated outcomes
     sim_a = np.random.normal(adj_mean_a, team_a_std, iterations)
@@ -74,6 +113,7 @@ def run_monte_carlo(team_a_base, team_a_std, team_b_base, team_b_std, momentum_a
     prob_b = wins_b / iterations
     prob_draw = draws / iterations
     
+>>>>>>> main
     return sim_a, sim_b, diff, prob_a, prob_b, prob_draw
 
 # ---------------------------------------------------------
@@ -96,6 +136,20 @@ with st.sidebar.expander("Model Hyperparameters", expanded=True):
     t_b_base = st.number_input(f"{team_b_name} Base Expected", value=1.80, step=0.1)
     t_b_std = st.number_input(f"{team_b_name} Volatility (Std Dev)", value=0.95, step=0.05)
 
+<<<<<<< feature/draw-tolerance-seed
+    # Draw tolerance controls
+    st.markdown("---")
+    draw_tolerance = st.number_input("Draw tolerance (abs spread considered a draw)", value=0.25, step=0.05, min_value=0.0)
+
+    # Optional reproducible RNG seed
+    use_seed = st.checkbox("Use fixed RNG seed", value=False)
+    if use_seed:
+        seed = int(st.number_input("RNG Seed (integer)", value=42, step=1))
+    else:
+        seed = None
+
+=======
+>>>>>>> main
 # ---------------------------------------------------------
 # MAIN DASHBOARD INTERFACE
 # ---------------------------------------------------------
@@ -115,7 +169,20 @@ with tab1:
     with col1:
         st.markdown(f"##### {team_a_name} Recent Form Trend")
         raw_inputs_a = st.text_input(f"{team_a_name} Last 5 Matches (Comma separated)", "2,3,1,4,3")
+<<<<<<< feature/draw-tolerance-seed
+        scores_a = []
+        for x in raw_inputs_a.split(","):
+            s = x.strip()
+            if not s:
+                continue
+            try:
+                scores_a.append(float(s))
+            except ValueError:
+                # skip non-numeric tokens
+                continue
+=======
         scores_a = [float(x.strip()) for x in raw_inputs_a.split(",") if x.strip().isdigit() or '.' in x]
+>>>>>>> main
         mom_factor_a = calculate_momentum_factor(scores_a)
         
         # UI Visual Feedback
@@ -125,7 +192,19 @@ with tab1:
     with col2:
         st.markdown(f"##### {team_b_name} Recent Form Trend")
         raw_inputs_b = st.text_input(f"{team_b_name} Last 5 Matches (Comma separated)", "1,1,2,0,2")
+<<<<<<< feature/draw-tolerance-seed
+        scores_b = []
+        for x in raw_inputs_b.split(","):
+            s = x.strip()
+            if not s:
+                continue
+            try:
+                scores_b.append(float(s))
+            except ValueError:
+                continue
+=======
         scores_b = [float(x.strip()) for x in raw_inputs_b.split(",") if x.strip().isdigit() or '.' in x]
+>>>>>>> main
         mom_factor_b = calculate_momentum_factor(scores_b)
         
         arrow_b = "📈" if mom_factor_b >= 0 else "📉"
@@ -133,11 +212,21 @@ with tab1:
 
     # Form Trend Visualizer
     st.markdown("### Form Velocity Trendlines")
+<<<<<<< feature/draw-tolerance-seed
+    max_len = max(len(scores_a), len(scores_b))
+    if max_len == 0:
+        trend_df = pd.DataFrame({'Match Index': []})
+    else:
+        trend_df = pd.DataFrame({'Match Index': np.arange(1, max_len + 1)})
+        trend_df[f'{team_a_name} Performance'] = pd.Series(scores_a + [np.nan] * (max_len - len(scores_a)))
+        trend_df[f'{team_b_name} Performance'] = pd.Series(scores_b + [np.nan] * (max_len - len(scores_b)))
+=======
     trend_df = pd.DataFrame({
         'Match Index': np.arange(1, max(len(scores_a), len(scores_b)) + 1),
         f'{team_a_name} Performance': pd.Series(scores_a),
         f'{team_b_name} Performance': pd.Series(scores_b)
     })
+>>>>>>> main
     fig_trend = px.line(trend_df, x='Match Index', y=[f'{team_a_name} Performance', f'{team_b_name} Performance'],
                         markers=True, line_shape='spline', title="Recent Match Score Progression")
     fig_trend.update_layout(yaxis_title="Output Metric / Goals / Points", template="plotly_white")
@@ -149,7 +238,12 @@ with tab2:
     
     # Execute backend simulations
     sim_a, sim_b, diff, p_a, p_b, p_draw = run_monte_carlo(
+<<<<<<< feature/draw-tolerance-seed
+        t_a_base, t_a_std, t_b_base, t_b_std, mom_factor_a, mom_factor_b,
+        sim_iterations, draw_tolerance=draw_tolerance, seed=seed
+=======
         t_a_base, t_a_std, t_b_base, t_b_std, mom_factor_a, mom_factor_b, sim_iterations
+>>>>>>> main
     )
     
     # Summary Metrics Cards
@@ -210,4 +304,8 @@ with tab3:
             st.metric("Suggested Stake %", f"{suggested_stake_pct:.2%}")
             st.metric("Suggested Bet Size", f"${suggested_cash:,.2f}")
         else:
+<<<<<<< feature/draw-tolerance-seed
             st.error(f"❌ **No Market Edge.**\n\nYour model's implied probability ({p_a:.2%}) is lower than or equal to the bookmaker's price ({implied_market_prob:.2%}). **Pass on this market.**")
+=======
+            st.error(f"❌ **No Market Edge.**\n\nYour model's implied probability ({p_a:.2%}) is lower than or equal to the bookmaker's price ({implied_market_prob:.2%}). **Pass on this market.**")
+>>>>>>> main
